@@ -1,0 +1,98 @@
+.layout {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.header h1 {
+  margin: 0;
+}
+
+.header p {
+  margin: 0.25rem 0 1rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.tabs button.active {
+  font-weight: 700;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.span-2 {
+  grid-column: span 2;
+}
+
+.card {
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 1rem;
+  background: #fff;
+}
+
+.form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+input,
+select,
+button {
+  padding: 0.5rem;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+}
+
+button {
+  background: #f6f8fa;
+  cursor: pointer;
+}
+
+.danger {
+  color: #b42318;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  border-bottom: 1px solid #eaeef2;
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.error {
+  background: #fef3f2;
+  color: #b42318;
+  border: 1px solid #fecdca;
+  padding: 0.5rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.loading {
+  margin-bottom: 1rem;
+}
