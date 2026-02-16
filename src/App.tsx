@@ -1,25 +1,55 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { apiDelete, apiGet, apiPost } from "./api";
 import "./App.css";
 import AdminPanel from "./components/AdminPanel";
 import LandingPage from "./components/LandingPage";
-import UserPanel from "./components/UserPanel";
+import RegisterPage from "./components/RegisterPage";
+import RoomListPage from "./components/RoomListPage";
+import RoomSchedulePage from "./components/RoomSchedulePage";
+import SignInPage from "./components/SignInPage";
 import type {
   BookingRequest,
   CreateRequestPayload,
   CreateRoomPayload,
+  LoginPayload,
+  RegisterPayload,
   Room,
+  UserSession,
 } from "./types";
 
-type Screen = "landing" | "admin" | "user";
+const sessionStorageKey = "campusrooms.session";
 
 function App() {
-  const [screen, setScreen] = useState<Screen>("landing");
+  const navigate = useNavigate();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [requests, setRequests] = useState<BookingRequest[]>([]);
-  const [queue, setQueue] = useState<BookingRequest[]>([]);
+  const [session, setSession] = useState<UserSession | null>(() => {
+    const stored = localStorage.getItem(sessionStorageKey);
+    if (!stored) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(stored) as UserSession;
+    } catch {
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isLoggedIn = session !== null;
+  const isAdmin = session?.role === "Admin";
+
+  const activeRooms = useMemo(
+    () => rooms.filter((room) => room.isActive),
+    [rooms],
+  );
+
+  const buildingCards = useMemo(() => {
+    return Array.from(new Set(activeRooms.map((room) => room.building)));
+  }, [activeRooms]);
 
   async function loadCoreData() {
     setLoading(true);
@@ -42,29 +72,35 @@ function App() {
     }
   }
 
-  async function loadQueue() {
-    setError(null);
-    try {
-      const queueResponse = await apiGet<BookingRequest[]>("/approvals/queue");
-      setQueue(queueResponse);
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unexpected error while loading approval queue.",
-      );
-    }
+  async function login(payload: LoginPayload): Promise<UserSession> {
+    const user = await apiPost<LoginPayload, UserSession>(
+      "/auth/login",
+      payload,
+    );
+    localStorage.setItem(sessionStorageKey, JSON.stringify(user));
+    setSession(user);
+    return user;
+  }
+
+  async function register(payload: RegisterPayload): Promise<UserSession> {
+    const user = await apiPost<RegisterPayload, UserSession>(
+      "/auth/register",
+      payload,
+    );
+    return user;
+  }
+
+  function logout() {
+    localStorage.removeItem(sessionStorageKey);
+    setSession(null);
+    navigate("/");
   }
 
   useEffect(() => {
-    void loadCoreData();
-  }, []);
-
-  useEffect(() => {
-    if (screen === "admin") {
-      void loadQueue();
+    if (isLoggedIn) {
+      void loadCoreData();
     }
-  }, [screen]);
+  }, [isLoggedIn]);
 
   async function createRoom(payload: CreateRoomPayload) {
     setError(null);
@@ -85,9 +121,6 @@ function App() {
     try {
       await apiPost<CreateRequestPayload, BookingRequest>("/requests", payload);
       await loadCoreData();
-      if (screen === "admin") {
-        await loadQueue();
-      }
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -110,7 +143,7 @@ function App() {
           ? "Approved in admin queue"
           : "Rejected in admin queue",
       });
-      await Promise.all([loadCoreData(), loadQueue()]);
+      await loadCoreData();
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -124,7 +157,7 @@ function App() {
     setError(null);
     try {
       await apiDelete(`/requests/${requestId}?actor=admin`);
-      await Promise.all([loadCoreData(), loadQueue()]);
+      await loadCoreData();
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -137,51 +170,168 @@ function App() {
   return (
     <main className="layout">
       <header className="topbar card">
-        <h1>Campus Room Management</h1>
+        <h1>Heya</h1>
         <div className="topbar-actions">
-          <button type="button" onClick={() => setScreen("landing")}>
-            Home
-          </button>
-          <button type="button" onClick={() => setScreen("user")}>
-            User
-          </button>
-          <button type="button" onClick={() => setScreen("admin")}>
-            Admin
-          </button>
-          <button type="button" onClick={() => void loadCoreData()}>
-            Refresh
-          </button>
+          {isLoggedIn && (
+            <>
+              <button type="button" onClick={() => navigate("/home")}>
+                Home
+              </button>
+              <button type="button" onClick={logout}>
+                Logout
+              </button>
+            </>
+          )}
         </div>
       </header>
 
       {error && <div className="error">{error}</div>}
       {loading && <div className="loading">Loading...</div>}
 
-      {screen === "landing" && (
-        <LandingPage
-          onEnterUser={() => setScreen("user")}
-          onEnterAdmin={() => setScreen("admin")}
+      <Routes>
+        <Route
+          path="/"
+          element={
+            isLoggedIn ? (
+              <Navigate to="/home" replace />
+            ) : (
+              <LandingPage
+                onSignIn={() => navigate("/sign-in")}
+                onRegister={() => navigate("/register")}
+              />
+            )
+          }
         />
-      )}
 
-      {screen === "admin" && (
-        <AdminPanel
-          rooms={rooms}
-          requests={requests}
-          queue={queue}
-          onCreateRoom={createRoom}
-          onDecide={decide}
-          onDeleteBooking={deleteBooking}
+        <Route
+          path="/sign-in"
+          element={
+            isLoggedIn ? (
+              <Navigate to="/home" replace />
+            ) : (
+              <SignInPage
+                onLogin={async (payload) => {
+                  setError(null);
+                  try {
+                    const user = await login(payload);
+                    navigate("/home", { replace: true });
+                    return user;
+                  } catch (requestError) {
+                    setError(
+                      requestError instanceof Error
+                        ? requestError.message
+                        : "Failed to sign in.",
+                    );
+                    throw requestError;
+                  }
+                }}
+              />
+            )
+          }
         />
-      )}
 
-      {screen === "user" && (
-        <UserPanel
-          rooms={rooms}
-          requests={requests}
-          onCreateRequest={createRequest}
+        <Route
+          path="/register"
+          element={
+            isLoggedIn ? (
+              <Navigate to="/home" replace />
+            ) : (
+              <RegisterPage
+                onRegister={async (payload) => {
+                  setError(null);
+                  try {
+                    const user = await register(payload);
+                    return user;
+                  } catch (requestError) {
+                    setError(
+                      requestError instanceof Error
+                        ? requestError.message
+                        : "Failed to register.",
+                    );
+                    throw requestError;
+                  }
+                }}
+              />
+            )
+          }
         />
-      )}
+
+        <Route
+          path="/home"
+          element={
+            !isLoggedIn ? (
+              <Navigate to="/" replace />
+            ) : (
+              <section className="user-shell">
+                {isAdmin ? (
+                  <AdminPanel
+                    rooms={rooms}
+                    requests={requests}
+                    onCreateRoom={createRoom}
+                    onDecide={decide}
+                    onDeleteBooking={deleteBooking}
+                  />
+                ) : (
+                  <>
+                    <div className="hero card">
+                      <h2>Heya, {session?.name ?? "Guest"}</h2>
+                      <p>Select a building to continue to room list.</p>
+                    </div>
+                    <div className="building-grid">
+                      {buildingCards.map((building) => (
+                        <button
+                          key={building}
+                          type="button"
+                          className="building-card"
+                          onClick={() =>
+                            navigate(
+                              `/room?building=${encodeURIComponent(building)}`,
+                            )
+                          }
+                        >
+                          <strong>{building}</strong>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </section>
+            )
+          }
+        />
+
+        <Route
+          path="/room"
+          element={
+            !isLoggedIn ? (
+              <Navigate to="/" replace />
+            ) : (
+              <RoomListPage rooms={rooms} />
+            )
+          }
+        />
+
+        <Route
+          path="/room/:id"
+          element={
+            !isLoggedIn || !session ? (
+              <Navigate to="/" replace />
+            ) : (
+              <RoomSchedulePage
+                rooms={rooms}
+                requests={requests}
+                user={session}
+                onCreateRequest={createRequest}
+              />
+            )
+          }
+        />
+
+        <Route
+          path="*"
+          element={<Navigate to={isLoggedIn ? "/home" : "/sign-in"} replace />}
+        />
+      </Routes>
     </main>
   );
 }

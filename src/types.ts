@@ -62,3 +62,26 @@ export type CreateRequestPayload = {
   recurrencePattern: RecurrencePattern;
   recurrenceUntilUtc: string | null;
 };
+
+export type UserRole = "User" | "Admin";
+
+export type UserSession = {
+  id: string;
+  name: string;
+  nrp: string;
+  email: string;
+  role: UserRole;
+  createdAtUtc: string;
+};
+
+export type LoginPayload = {
+  email: string;
+  password: string;
+};
+
+export type RegisterPayload = {
+  name: string;
+  nrp: string;
+  email: string;
+  password: string;
+};
