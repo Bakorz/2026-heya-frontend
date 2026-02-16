@@ -2,12 +2,12 @@ import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import type { BookingRequest, CreateRoomPayload, Room } from "../types";
 
-type AdminSection = "create-room" | "approve-request" | "booking-history";
+type AdminSection = "create-room" | "bookings";
+type BookingStatusFilter = "Pending" | "Approved" | "Rejected";
 
 type AdminPanelProps = {
   rooms: Room[];
   requests: BookingRequest[];
-  queue: BookingRequest[];
   onCreateRoom: (payload: CreateRoomPayload) => Promise<void>;
   onDecide: (requestId: string, isApproved: boolean) => Promise<void>;
   onDeleteBooking: (requestId: string) => Promise<void>;
@@ -22,16 +22,30 @@ function parseRequester(value: string): { name: string; nrp: string } {
   return { name: match[1].trim(), nrp: match[2].trim() };
 }
 
+function toDisplayStatus(
+  status: BookingRequest["status"],
+): BookingStatusFilter {
+  if (status === "Submitted") {
+    return "Pending";
+  }
+
+  return status === "Rejected" ? "Rejected" : "Approved";
+}
+
 function AdminPanel({
   rooms,
   requests,
-  queue,
   onCreateRoom,
   onDecide,
   onDeleteBooking,
 }: AdminPanelProps) {
   const [activeSection, setActiveSection] =
     useState<AdminSection>("create-room");
+  const [bookingStatusFilter, setBookingStatusFilter] =
+    useState<BookingStatusFilter>("Pending");
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(
+    null,
+  );
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState<CreateRoomPayload>({
     code: "",
@@ -41,10 +55,23 @@ function AdminPanel({
     actor: "admin",
   });
 
-  const history = useMemo(
-    () => requests.filter((request) => request.status !== "Draft"),
-    [requests],
-  );
+  const filteredBookings = useMemo(() => {
+    return requests.filter((request) => {
+      if (bookingStatusFilter === "Pending") {
+        return request.status === "Submitted";
+      }
+
+      return request.status === bookingStatusFilter;
+    });
+  }, [bookingStatusFilter, requests]);
+
+  const selectedRequest = useMemo(() => {
+    if (!selectedRequestId) {
+      return null;
+    }
+
+    return requests.find((request) => request.id === selectedRequestId) ?? null;
+  }, [requests, selectedRequestId]);
 
   async function submitCreateRoom(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -70,17 +97,10 @@ function AdminPanel({
         </button>
         <button
           type="button"
-          className={activeSection === "approve-request" ? "active" : ""}
-          onClick={() => setActiveSection("approve-request")}
+          className={activeSection === "bookings" ? "active" : ""}
+          onClick={() => setActiveSection("bookings")}
         >
-          Approve Request
-        </button>
-        <button
-          type="button"
-          className={activeSection === "booking-history" ? "active" : ""}
-          onClick={() => setActiveSection("booking-history")}
-        >
-          Booking History
+          Bookings
         </button>
       </aside>
 
@@ -132,62 +152,32 @@ function AdminPanel({
           </>
         )}
 
-        {activeSection === "approve-request" && (
+        {activeSection === "bookings" && (
           <>
-            <h3>Approve Request</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>NRP</th>
-                  <th>Purpose</th>
-                  <th>Start</th>
-                  <th>End</th>
-                  <th>Booked class</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {queue.map((request) => {
-                  const requester = parseRequester(request.requestedBy);
-                  return (
-                    <tr key={request.id}>
-                      <td>{requester.name}</td>
-                      <td>{requester.nrp}</td>
-                      <td>{request.purpose}</td>
-                      <td>{new Date(request.startUtc).toLocaleString()}</td>
-                      <td>{new Date(request.endUtc).toLocaleString()}</td>
-                      <td>
-                        {request.room
-                          ? `${request.room.code} - ${request.room.name}`
-                          : "-"}
-                      </td>
-                      <td className="actions">
-                        <button
-                          type="button"
-                          onClick={() => void onDecide(request.id, true)}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void onDecide(request.id, false)}
-                          className="danger"
-                        >
-                          Reject
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </>
-        )}
-
-        {activeSection === "booking-history" && (
-          <>
-            <h3>Booking History</h3>
+            <h3>Bookings</h3>
+            <div className="actions" style={{ marginBottom: "0.75rem" }}>
+              <button
+                type="button"
+                className={bookingStatusFilter === "Pending" ? "active" : ""}
+                onClick={() => setBookingStatusFilter("Pending")}
+              >
+                Pending
+              </button>
+              <button
+                type="button"
+                className={bookingStatusFilter === "Approved" ? "active" : ""}
+                onClick={() => setBookingStatusFilter("Approved")}
+              >
+                Approved
+              </button>
+              <button
+                type="button"
+                className={bookingStatusFilter === "Rejected" ? "active" : ""}
+                onClick={() => setBookingStatusFilter("Rejected")}
+              >
+                Rejected
+              </button>
+            </div>
             <table>
               <thead>
                 <tr>
@@ -196,14 +186,14 @@ function AdminPanel({
                   <th>Class</th>
                   <th>Purpose</th>
                   <th>Status</th>
-                  <th>Start</th>
-                  <th>End</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {history.map((request) => {
+                {filteredBookings.map((request) => {
                   const requester = parseRequester(request.requestedBy);
+                  const displayStatus = toDisplayStatus(request.status);
+
                   return (
                     <tr key={request.id}>
                       <td>{requester.name}</td>
@@ -214,16 +204,13 @@ function AdminPanel({
                           : "-"}
                       </td>
                       <td>{request.purpose}</td>
-                      <td>{request.status}</td>
-                      <td>{new Date(request.startUtc).toLocaleString()}</td>
-                      <td>{new Date(request.endUtc).toLocaleString()}</td>
-                      <td>
+                      <td>{displayStatus}</td>
+                      <td className="actions">
                         <button
                           type="button"
-                          className="danger"
-                          onClick={() => void onDeleteBooking(request.id)}
+                          onClick={() => setSelectedRequestId(request.id)}
                         >
-                          Delete
+                          Detail
                         </button>
                       </td>
                     </tr>
@@ -231,6 +218,127 @@ function AdminPanel({
                 })}
               </tbody>
             </table>
+
+            {selectedRequest && (
+              <div
+                className="modal-overlay"
+                role="presentation"
+                onClick={() => setSelectedRequestId(null)}
+              >
+                <section
+                  className="card modal-content"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Booking Detail"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <h4>Booking Detail</h4>
+                  <div className="form two-cols">
+                    <div>
+                      <strong>Name</strong>
+                      <div>
+                        {parseRequester(selectedRequest.requestedBy).name}
+                      </div>
+                    </div>
+                    <div>
+                      <strong>NRP</strong>
+                      <div>
+                        {parseRequester(selectedRequest.requestedBy).nrp}
+                      </div>
+                    </div>
+                    <div>
+                      <strong>Class</strong>
+                      <div>
+                        {selectedRequest.room
+                          ? `${selectedRequest.room.code} - ${selectedRequest.room.name}`
+                          : "-"}
+                      </div>
+                    </div>
+                    <div>
+                      <strong>Status</strong>
+                      <div>{toDisplayStatus(selectedRequest.status)}</div>
+                    </div>
+                    <div>
+                      <strong>Start</strong>
+                      <div>
+                        {new Date(selectedRequest.startUtc).toLocaleString()}
+                      </div>
+                    </div>
+                    <div>
+                      <strong>End</strong>
+                      <div>
+                        {new Date(selectedRequest.endUtc).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="row" style={{ marginTop: "0.75rem" }}>
+                    {toDisplayStatus(selectedRequest.status) === "Pending" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await onDecide(selectedRequest.id, true);
+                          }}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={async () => {
+                            await onDecide(selectedRequest.id, false);
+                          }}
+                        >
+                          Reject
+                        </button>
+                      </>
+                    )}
+
+                    {toDisplayStatus(selectedRequest.status) === "Approved" && (
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={async () => {
+                          await onDecide(selectedRequest.id, false);
+                        }}
+                      >
+                        Move to Rejected
+                      </button>
+                    )}
+
+                    {toDisplayStatus(selectedRequest.status) === "Rejected" && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await onDecide(selectedRequest.id, true);
+                        }}
+                      >
+                        Move to Approved
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={async () => {
+                        await onDeleteBooking(selectedRequest.id);
+                        setSelectedRequestId(null);
+                      }}
+                    >
+                      Delete
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRequestId(null)}
+                    >
+                      Close
+                    </button>
+                  </div>
+                </section>
+              </div>
+            )}
           </>
         )}
 
